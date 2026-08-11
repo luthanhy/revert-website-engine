@@ -4,3 +4,4 @@ output/
 *.log
 crawl-state.db
 .DS_Store
+release-test/craw-web-linux-test

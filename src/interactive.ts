@@ -7,6 +7,31 @@
 // `import` bị TypeScript hoist lên đầu file khi biên dịch sang CommonJS, chạy trước mọi statement
 // khác kể cả khi đặt sau trong source — dùng require() động là cách duy nhất đảm bảo thứ tự đúng).
 if ((process as unknown as { pkg?: unknown }).pkg) {
+  // playwright-core/src/client/page.ts gọi require("inspector") KHÔNG điều kiện ở module init
+  // (chỉ dùng cho tính năng profiling ta không bao giờ bật) — pkg đóng gói dưới dạng V8 bytecode
+  // snapshot không hỗ trợ đầy đủ binding "inspector" built-in, gây throw "Inspector is not
+  // available" ngay khi playwright load, dù ta không hề dùng inspector. Vì chắc chắn không dùng
+  // Session/profiling thật, chặn bằng module giả TRƯỚC khi bất kỳ code nào require("playwright").
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const Module = require("module");
+  const originalLoad = Module._load;
+  Module._load = function (request: string, ...rest: unknown[]) {
+    if (request === "inspector" || request === "node:inspector") {
+      return {
+        Session: class {
+          connect() {}
+          post(_method: string, cb?: (err: unknown, res: unknown) => void) {
+            if (cb) cb(null, {});
+          }
+          disconnect() {}
+        },
+        url: () => undefined,
+      };
+    }
+    // eslint-disable-next-line prefer-rest-params
+    return originalLoad.apply(this, [request, ...rest]);
+  };
+
   // Chạy dưới dạng exe đã đóng gói: browser Chromium cho Windows được đặt sẵn trong thư mục
   // "browsers" nằm CẠNH file exe (xem scripts/download-windows-chromium.ts) — không dùng cache
   // mặc định của Playwright (~/.cache/ms-playwright) vì máy người dùng cuối chưa từng cài gì.
