@@ -1,8 +1,8 @@
-# Craw_Web
+# revert-website-engine
 
 An open-source CLI for crawling a website, saving and organizing its assets locally, rewriting HTML/CSS URLs to local paths, and producing actionable audit reports. It is designed for internal archiving, website-structure analysis, offline preview preparation, and front-end dependency review.
 
-> Only crawl websites that you own or are authorized to access. Craw_Web respects `robots.txt` by default; it is not a penetration-testing tool and does not exploit vulnerabilities.
+> Only crawl websites that you own or are authorized to access. revert-website-engine respects `robots.txt` by default; it is not a penetration-testing tool and does not exploit vulnerabilities.
 
 ## Features
 
@@ -25,7 +25,7 @@ An open-source CLI for crawling a website, saving and organizing its assets loca
 
 ```bash
 git clone <repository-url>
-cd craw-web
+cd revert-website-engine
 npm install
 npm run build
 ```
