@@ -24,6 +24,7 @@
     "iconv-lite": "^0.6.3",
     "mime-types": "^2.1.35",
     "p-queue": "^8.0.1",
+    "playwright": "^1.62.1",
     "undici": "^6.21.0"
   },
   "devDependencies": {

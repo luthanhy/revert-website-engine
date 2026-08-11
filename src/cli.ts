@@ -81,8 +81,17 @@ program
     }
 
     console.log(`[craw-web] Bắt đầu crawl ${config.url} (depth=${config.depth}, output=${config.output})`);
+    const isTTY = process.stdout.isTTY;
     try {
-      const summary = await runCrawl(config);
+      const summary = await runCrawl(config, (p) => {
+        const line = `[craw-web] pages:${p.pages} downloaded:${p.downloaded} failed:${p.failed} blocked:${p.blocked} pending:${p.pending} | ${truncate(p.currentUrl, 70)}`;
+        if (isTTY) {
+          process.stdout.write(`\r${line.padEnd(140)}`);
+        } else {
+          console.log(line);
+        }
+      });
+      if (isTTY) process.stdout.write("\n");
       console.log("\n[craw-web] Crawl hoàn tất:");
       console.log(JSON.stringify(summary, null, 2));
       console.log(`\nOutput: ${summary.domainRoot}`);
@@ -123,6 +132,10 @@ program
     console.log(`[craw-web] resume ${crawlId}: chưa implement (P1, cần better-sqlite3, xem src/state/crawlState.ts).`);
     process.exitCode = 1;
   });
+
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
 
 function collectStrip(value: string, previous: string[]): string[] {
   return [...previous, value];

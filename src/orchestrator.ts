@@ -38,6 +38,17 @@ export interface CrawlRunSummary {
   offlineReadinessPercent: number;
 }
 
+// doc/plan.md mục 21 (Logging & progress) — gọi mỗi khi 1 resource (trang hoặc asset) xong
+// (thành công/lỗi/blocked) để CLI có thể in tiến trình, tránh trông như tool bị treo trên site lớn.
+export interface ProgressSnapshot {
+  pages: number;
+  downloaded: number;
+  failed: number;
+  blocked: number;
+  pending: number;
+  currentUrl: string;
+}
+
 function classifyResourceType(contentType: string | null, url: string): ResourceType {
   const mime = contentType?.split(";")[0].trim().toLowerCase() ?? "";
   if (mime === "text/html") return "html";
@@ -60,7 +71,10 @@ function classifyResourceType(contentType: string | null, url: string): Resource
   return "other";
 }
 
-export async function runCrawl(config: CrawlConfig): Promise<CrawlRunSummary> {
+export async function runCrawl(
+  config: CrawlConfig,
+  onProgress?: (snapshot: ProgressSnapshot) => void
+): Promise<CrawlRunSummary> {
   const crawlId = randomUUID();
   const rootUrl = normalizeUrl(config.url, { stripParams: config.stripParams });
   const domain = new URL(rootUrl).host;
@@ -80,6 +94,19 @@ export async function runCrawl(config: CrawlConfig): Promise<CrawlRunSummary> {
   let pageCount = 0;
   let fileCount = 0;
   let totalBytes = 0;
+
+  function emitProgress(currentUrl: string): void {
+    if (!onProgress) return;
+    const all = graph.all();
+    onProgress({
+      pages: pageCount,
+      downloaded: all.filter((r) => r.state === "downloaded" || r.state === "rewritten").length,
+      failed: all.filter((r) => r.state === "failed").length,
+      blocked: all.filter((r) => r.state === "blocked").length,
+      pending: pQueue.size + pQueue.pending,
+      currentUrl,
+    });
+  }
 
   function getOrCreateResource(url: string, discoveredFrom: DiscoveredFrom, sourceId: string | null): Resource {
     const existing = resolveByUrl.get(url);
@@ -240,6 +267,7 @@ export async function runCrawl(config: CrawlConfig): Promise<CrawlRunSummary> {
 
   async function processAsset(resource: Resource): Promise<void> {
     await downloadResource(resource);
+    emitProgress(resource.url);
     if (resource.state !== "downloaded" || resource.type !== "css") return;
 
     const text = rawTextOf.get(resource.id)!;
@@ -257,6 +285,7 @@ export async function runCrawl(config: CrawlConfig): Promise<CrawlRunSummary> {
       const resource = getOrCreateResource(url, discoveredFrom, null);
       resource.state = "blocked";
       resource.blockedReason = "MAX_PAGES_EXCEEDED";
+      emitProgress(url);
       return;
     }
 
@@ -265,10 +294,12 @@ export async function runCrawl(config: CrawlConfig): Promise<CrawlRunSummary> {
     if (!config.ignoreRobots && robotsDisallow.length && isDisallowed(new URL(url).pathname, robotsDisallow)) {
       resource.state = "blocked";
       resource.blockedReason = "ROBOTS_BLOCKED";
+      emitProgress(url);
       return;
     }
 
     await downloadResource(resource);
+    emitProgress(resource.url);
     if (resource.state !== "downloaded" || resource.type !== "html") return;
     pageCount++;
 
