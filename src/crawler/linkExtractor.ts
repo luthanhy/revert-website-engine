@@ -16,7 +16,13 @@ const ASSET_SELECTORS: Array<{ selector: string; attr: string; tag: string }> = 
   { selector: "source[src]", attr: "src", tag: "source" },
   { selector: "source[srcset]", attr: "srcset", tag: "source" },
   { selector: "script[src]", attr: "src", tag: "script" },
-  { selector: "link[href]", attr: "href", tag: "link" },
+  // rel=preconnect/dns-prefetch chỉ là performance hint (trỏ tới origin, không phải resource thật)
+  // -> cố tải sẽ luôn 404 vô nghĩa, loại trừ tường minh thay vì coi mọi link[href] là asset.
+  {
+    selector: "link[href]:not([rel~='preconnect']):not([rel~='dns-prefetch'])",
+    attr: "href",
+    tag: "link",
+  },
   { selector: "video[src]", attr: "src", tag: "video" },
   { selector: "video[poster]", attr: "poster", tag: "video" },
   { selector: "audio[src]", attr: "src", tag: "audio" },

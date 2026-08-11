@@ -24,7 +24,7 @@ import { streamToDisk } from "./organizer/writer";
 import { rewriteCss, rewriteHtml, ResolveMap } from "./organizer/rewriter";
 import { runStaticValidation, computeOfflineReadiness } from "./offline/staticValidator";
 import { detectMinification } from "./analyzer/minifyDetector";
-import { auditPassiveSecurity } from "./analyzer/securityAuditor";
+import { auditPassiveSecurity, auditExposure } from "./analyzer/securityAuditor";
 import { detectTechnologies } from "./analyzer/techDetector";
 import { splitFrontendBackend } from "./analyzer/stackSplitter";
 import { buildSummary } from "./analyzer/reportBuilder";
@@ -549,12 +549,13 @@ export async function runCrawl(
   const rootResource = resolveByUrl.get(rootUrl);
   const rootHeadersValue = rootResource ? rootHeaders.get(rootResource.id) ?? {} : {};
   const passiveFindings = auditPassiveSecurity(rootHeadersValue, new URL(rootUrl).protocol === "https:");
+  const exposureFindings = config.securityProbe ? await auditExposure(origin) : null;
   await fs.writeFile(
     path.join(domainRoot, "audit", "security.json"),
     JSON.stringify(
       {
         passive: passiveFindings,
-        exposure: config.securityProbe ? "not implemented yet (P1)" : "skipped (--security-probe không bật)",
+        exposure: exposureFindings ?? "skipped (--security-probe không bật)",
         dependencyVulnerability: "not implemented yet (P1, cần advisory database thật)",
       },
       null,
@@ -583,7 +584,7 @@ export async function runCrawl(
   const summary = buildSummary({
     technologies,
     minification,
-    securityFindings: passiveFindings,
+    securityFindings: [...passiveFindings, ...(exposureFindings ?? [])],
     frontendBackend,
     offlineReadinessPercent,
     errors,

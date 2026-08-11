@@ -1,5 +1,8 @@
-// doc/plan.md mục 18.3: passive security (implement) + exposure detection (P1, cần --security-probe)
-// + dependency vulnerability (P1, cần advisory database thật — chưa làm ở bước scaffold này).
+// doc/plan.md mục 18.3: passive security (implement) + exposure detection (--security-probe, chỉ
+// GET thông thường, không exploit) + dependency vulnerability (P1, cần advisory database thật).
+
+import { request } from "undici";
+import { randomUUID } from "node:crypto";
 
 export type Severity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
 
@@ -73,13 +76,69 @@ export function auditPassiveSecurity(headers: Record<string, string>, isHttps: b
   return findings;
 }
 
-// P1 — chỉ chạy khi --security-probe (mục 18.3). Không exploit/intrusive testing.
-const EXPOSURE_PATHS = ["/.env", "/.git/HEAD", "/wp-config.php.bak", "/.DS_Store"];
+// Chỉ chạy khi --security-probe (mục 18.3). Chỉ GET thông thường — không exploit/intrusive testing.
+const EXPOSURE_PATHS = [
+  "/.env",
+  "/.env.local",
+  "/.env.production",
+  "/.git/HEAD",
+  "/.git/config",
+  "/wp-config.php.bak",
+  "/wp-config.php.old",
+  "/.DS_Store",
+  "/config.php.bak",
+  "/backup.zip",
+  "/database.sql",
+  "/.htaccess",
+];
 
-export async function auditExposure(_origin: string): Promise<SecurityFinding[]> {
-  throw new Error(
-    "auditExposure: not implemented yet (P1 — gated behind --security-probe, xem doc/plan.md mục 18.3)"
-  );
+interface ProbeResult {
+  status: number;
+  size: number;
+}
+
+async function probeUrl(url: string): Promise<ProbeResult | null> {
+  try {
+    const res = await request(url, { maxRedirections: 0, headersTimeout: 10_000, bodyTimeout: 10_000 });
+    const buffer = await res.body.arrayBuffer();
+    return { status: res.statusCode, size: buffer.byteLength };
+  } catch {
+    return null;
+  }
+}
+
+function sizesSimilar(a: number, b: number): boolean {
+  if (a === 0 && b === 0) return true;
+  const diff = Math.abs(a - b);
+  return diff / Math.max(a, b, 1) < 0.05; // lệch <5% coi là cùng 1 trang (soft-404 template)
+}
+
+// Nhiều site trả 200 cho MỌI path không tồn tại (soft-404, thường là SPA fallback hoặc trang lỗi
+// tuỳ biến) — nếu không có baseline để so sánh, một path thật sự KHÔNG tồn tại vẫn sẽ bị báo nhầm
+// là "lộ". Baseline = request 1 path random chắc chắn không tồn tại, dùng làm mốc so sánh.
+export async function auditExposure(origin: string): Promise<SecurityFinding[]> {
+  const findings: SecurityFinding[] = [];
+  const probeToken = randomUUID();
+  const baseline = await probeUrl(`${origin}/__craw_web_probe_${probeToken}__`);
+
+  for (const p of EXPOSURE_PATHS) {
+    const result = await probeUrl(`${origin}${p}`);
+    if (!result) continue; // lỗi mạng/timeout -> bỏ qua, không kết luận
+
+    const looksLikeSoft404 =
+      baseline !== null && baseline.status === result.status && sizesSimilar(baseline.size, result.size);
+
+    if (result.status === 200 && !looksLikeSoft404) {
+      findings.push({
+        severity: "HIGH",
+        description: `Đường dẫn nhạy cảm có thể đang bị lộ công khai: ${p}`,
+        evidence: `GET ${p} -> HTTP ${result.status}, ${result.size} bytes (khác baseline 404: ${baseline?.status ?? "n/a"}, ${baseline?.size ?? "n/a"} bytes)`,
+        recommendation: `Chặn truy cập public tới ${p} (trả 403/404, hoặc xoá khỏi web root/server config).`,
+      });
+    }
+  }
+
+  return findings;
 }
 
 export { EXPOSURE_PATHS };
