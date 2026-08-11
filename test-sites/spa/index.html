@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>SPA Test</title>
+</head>
+<body>
+  <div id="app">Loading...</div>
+  <script>
+    setTimeout(function () {
+      document.getElementById("app").innerHTML =
+        '<img src="dynamic.png" alt="dynamic"><a href="page2.html">Page 2</a>';
+      fetch("/api/data.json").then(function (r) { return r.json(); }).catch(function () {});
+    }, 300);
+  </script>
+</body>
+</html>

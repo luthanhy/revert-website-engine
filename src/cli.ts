@@ -4,6 +4,7 @@
 import { Command } from "commander";
 import { CrawlConfig, DEFAULT_CONFIG } from "./config";
 import { runCrawl } from "./orchestrator";
+import { closeRenderer } from "./crawler/renderer";
 
 const program = new Command();
 
@@ -77,7 +78,7 @@ program
     };
 
     if (config.render) {
-      console.error("[craw-web] --render chưa implement (P1, cần Playwright) — bỏ qua flag này, crawl tĩnh vẫn chạy.");
+      console.log("[craw-web] --render bật: dùng Playwright, chậm hơn crawl tĩnh, cần Chromium đã cài (npx playwright install chromium).");
     }
 
     console.log(`[craw-web] Bắt đầu crawl ${config.url} (depth=${config.depth}, output=${config.output})`);
@@ -102,6 +103,8 @@ program
     } catch (err) {
       console.error("[craw-web] Crawl thất bại:", err);
       process.exitCode = 1;
+    } finally {
+      if (config.render) await closeRenderer();
     }
   });
 

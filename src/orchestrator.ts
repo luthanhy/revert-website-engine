@@ -1,6 +1,6 @@
 // Nối các module P0 thành 1 luồng crawl chạy được thật.
-// Theo doc/plan.md mục 2 (pipeline) — riêng runtime capture (Playwright, mục 11) và
-// crawl-state/resume (SQLite, mục 17) là P1, CHƯA nối ở đây (xem renderer.ts/crawlState.ts).
+// Theo doc/plan.md mục 2 (pipeline). Runtime capture (Playwright, mục 11) đã nối khi config.render=true
+// — riêng crawl-state/resume (SQLite, mục 17) vẫn là P1, CHƯA nối (xem crawlState.ts).
 
 import { randomUUID, createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
@@ -13,6 +13,7 @@ import { isHttpUrl, normalizeUrl, stripFragment } from "./crawler/urlNormalizer"
 import { isSameOrigin, isSameSite, QueryVariantGuard } from "./crawler/urlPolicy";
 import { CrawlQueue } from "./crawler/queue";
 import { fetchResource, readTextWithEncoding } from "./crawler/fetcher";
+import { renderPage, closeRenderer } from "./crawler/renderer";
 import { extractLinks } from "./crawler/linkExtractor";
 import { extractCssUrls } from "./crawler/cssExtractor";
 import { fetchRobotsTxt, fetchSitemapUrls, isDisallowed } from "./crawler/robotsAndSitemap";
@@ -137,7 +138,7 @@ export async function runCrawl(
     if (config.delayMs > 0) await new Promise((r) => setTimeout(r, config.delayMs));
   }
 
-  async function downloadResource(resource: Resource): Promise<void> {
+  async function downloadResource(resource: Resource, useRenderer: boolean): Promise<void> {
     if (fileCount >= config.maxFiles) {
       resource.state = "blocked";
       resource.blockedReason = "MAX_FILES_EXCEEDED";
@@ -151,6 +152,11 @@ export async function runCrawl(
 
     resource.state = "fetching";
     await delay();
+
+    if (useRenderer) {
+      await downloadViaRenderer(resource);
+      return;
+    }
 
     let result;
     try {
@@ -256,6 +262,72 @@ export async function runCrawl(
     }
   }
 
+  const RUNTIME_ASSET_TYPES = new Set(["stylesheet", "image", "script", "font", "media"]);
+  const RUNTIME_BACKEND_TYPES = new Set(["xhr", "fetch", "eventsource"]);
+
+  async function downloadViaRenderer(resource: Resource): Promise<void> {
+    let render;
+    try {
+      render = await renderPage(resource.url, {
+        maxRenderTimeMs: config.maxRenderTimeMs,
+        maxNetworkRequests: config.maxNetworkRequests,
+        scroll: config.scroll,
+        scrollDelayMs: config.scrollDelayMs,
+        waitForNetworkIdle: config.waitForNetworkIdle,
+      });
+    } catch (err) {
+      const type = classifyException(err);
+      errors.push(makeError(resource.url, type, String(err)));
+      resource.state = "failed";
+      resource.errorType = type;
+      return;
+    }
+
+    resource.finalUrl = render.finalUrl;
+    resource.redirectChain = render.redirectChain;
+    resource.status = render.status;
+    resource.contentType = "text/html";
+    resource.type = "html";
+
+    const httpErrorType = classifyHttpStatus(render.status);
+    if (httpErrorType) {
+      errors.push(makeError(resource.url, httpErrorType, `HTTP ${render.status}`, render.status));
+      resource.state = "failed";
+      resource.errorType = httpErrorType;
+      return;
+    }
+
+    fileCount++;
+
+    const text = render.html;
+    const sha256 = createHash("sha256").update(text, "utf-8").digest("hex");
+    resource.sha256 = sha256;
+    resource.size = Buffer.byteLength(text);
+    totalBytes += resource.size;
+    resource.localPath = mapHtmlLocalPath(render.finalUrl, domain);
+    rawTextOf.set(resource.id, text);
+    resource.state = "downloaded";
+
+    // Runtime network capture (mục 11/13): asset -> tải như bình thường; xhr/fetch/websocket ->
+    // chỉ ghi nhận vào graph làm backend dependency, KHÔNG tải (mục 8 "API — không download").
+    for (const req of render.capturedRequests) {
+      if (req.resourceType === "websocket") {
+        const wsResource = getOrCreateResource(req.url, "runtime", resource.id);
+        graph.addDependency(resource.id, wsResource.id);
+        continue;
+      }
+      const stripped = stripFragment(req.url);
+      if (!isHttpUrl(stripped)) continue;
+      const normalized = normalizeUrl(stripped, { stripParams: config.stripParams });
+      if (RUNTIME_ASSET_TYPES.has(req.resourceType)) {
+        enqueueAsset(normalized, "runtime", resource.id);
+      } else if (RUNTIME_BACKEND_TYPES.has(req.resourceType)) {
+        const apiResource = getOrCreateResource(normalized, "runtime", resource.id);
+        graph.addDependency(resource.id, apiResource.id);
+      }
+    }
+  }
+
   function enqueueAsset(url: string, discoveredFrom: DiscoveredFrom, sourceId: string): void {
     if (config.sameOriginOnly && !isSameOrigin(url, rootUrl)) return;
     const resource = getOrCreateResource(url, discoveredFrom, sourceId);
@@ -266,7 +338,7 @@ export async function runCrawl(
   }
 
   async function processAsset(resource: Resource): Promise<void> {
-    await downloadResource(resource);
+    await downloadResource(resource, false);
     emitProgress(resource.url);
     if (resource.state !== "downloaded" || resource.type !== "css") return;
 
@@ -298,7 +370,7 @@ export async function runCrawl(
       return;
     }
 
-    await downloadResource(resource);
+    await downloadResource(resource, config.render);
     emitProgress(resource.url);
     if (resource.state !== "downloaded" || resource.type !== "html") return;
     pageCount++;
@@ -518,6 +590,8 @@ export async function runCrawl(
   });
   await fs.writeFile(path.join(domainRoot, "audit", "summary.json"), JSON.stringify(summary.json, null, 2));
   await fs.writeFile(path.join(domainRoot, "audit", "summary.md"), summary.markdown);
+
+  if (config.render) await closeRenderer(); // đóng browser để process thoát sạch, không treo
 
   return {
     crawlId,

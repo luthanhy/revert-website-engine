@@ -335,13 +335,12 @@ Overall: 82%   (công thức cụ thể, xem bên dưới —
 **Công thức "Offline Readiness %"** (phải cố định, để `test-sites/` có expected number chính xác, không phải số ước lượng):
 
 ```
-Offline Readiness % = (số resource ở state "rewritten" hoặc "validated" mà offline validator
-                        xác nhận resolve OK) / (tổng số resource được tham chiếu tĩnh, tức
-                        discoveredFrom ∈ {html, css, sitemap} — KHÔNG tính resource
-                        discoveredFrom = "runtime")
+Offline Readiness % = (số resource ở state "rewritten"/"downloaded" mà offline validator
+                        xác nhận resolve OK) / (tổng số resource CÓ localPath cố tình được tải,
+                        tức state != "discovered")
 ```
 
-- **Mẫu số CHỈ tính static dependency** (asset tham chiếu trực tiếp trong HTML/CSS đã crawl được, không tính động). Runtime dependency (API call, WebSocket phát hiện lúc Playwright chạy) **không đưa vào mẫu số** của tỉ lệ này — vì bản chất chúng cần backend, tính vào sẽ khiến % luôn thấp giả tạo với mọi SPA dù rewrite hoàn hảo.
+- **Mẫu số loại backend/API dependency** (resource cố tình chưa từng tải — API call, WebSocket phát hiện lúc `--render`, luôn dừng ở state `"discovered"`, không có `localPath`). Dùng `state === "discovered"` làm điều kiện loại, **không dùng** `discoveredFrom === "runtime"` — vì asset tĩnh (ảnh/CSS/JS) được **phát hiện qua Playwright** (vd lazy-load, chunk JS inject sau khi hydrate) vẫn tải/rewrite bình thường và **nên được tính** vào offline readiness; chỉ resource thật sự chưa từng tải (backend call) mới bị loại. Tính vào backend call sẽ khiến % luôn thấp giả tạo với mọi SPA dù rewrite hoàn hảo.
 - Runtime dependency được báo cáo **riêng** như số liệu tuyệt đối (`Backend dependencies: 4`, `Runtime JS errors: 1`) bên cạnh %, không gộp vào công thức.
 - Một resource tính là "resolve OK" khi: file tồn tại trên đĩa, `sha256` khớp manifest (xem integrity check mục 4), và không xuất hiện trong danh sách `missingAssets`/`externalRequests` khi runtime-validate.
 
@@ -546,9 +545,13 @@ Bao gồm: crawl boundary/explosion guard, error taxonomy, same-origin/cross-ori
 
 ### P1 — Production
 ```
-Playwright runtime network capture đầy đủ (WebSocket/Worker/Service Worker)
-lazy loading (--scroll) · SQLite resume · authentication/session
-Service Worker/PWA detection · technology evidence/confidence
+[ĐÃ XONG] --render qua Playwright: network capture (fetch/XHR/websocket), phân loại
+          asset (tải) vs backend dependency (chỉ ghi nhận), --scroll cho lazy-load,
+          giới hạn --max-render-time/--max-network-requests. Xem crawler/renderer.ts.
+          Worker/SharedWorker/Service Worker: chưa capture riêng (chỉ websocket/xhr/fetch).
+
+SQLite resume · authentication/session
+Service Worker/PWA detection (audit riêng, khác network capture ở trên) · technology evidence/confidence
 security audit đầy đủ (3 tầng) · minification confidence
 AST-based JS rewrite cho pattern an toàn · test suite đầy đủ
 ```

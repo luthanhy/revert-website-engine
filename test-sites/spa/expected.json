@@ -1,0 +1,19 @@
+{
+  "description": "Expected result cho test-sites/spa — xem doc/plan.md mục 23. Test riêng --render (mục 11) và phân loại runtime dependency (mục 13).",
+  "withoutRender": {
+    "pages": 1,
+    "assetsDownloaded": 0,
+    "notes": "index.html chỉ có <div id=\"app\">Loading...</div> tĩnh; img/link/fetch được JS inject sau 300ms nên crawl tĩnh không thấy được."
+  },
+  "withRender": {
+    "pages": 2,
+    "assetsDownloaded": 1,
+    "apiEndpoints": ["http://<host>/api/data.json"],
+    "notes": [
+      "dynamic.png và page2.html chỉ tồn tại trong DOM sau khi setTimeout chạy -> cần --render để thấy.",
+      "fetch('/api/data.json') phải xuất hiện trong audit/frontend-backend.json.apiEndpoints (kind: rest), KHÔNG được tải xuống (manifest.json: localPath=null, state=discovered) — đây là backend dependency thật (mục 13), không phải static asset.",
+      "Nội dung <script> gốc KHÔNG bị rewrite (vẫn còn 'dynamic.png' và '/api/data.json' nguyên văn trong thẻ script) — đúng nguyên tắc mục 12 không rewrite JS.",
+      "<img src> trong DOM đã render (nằm ngoài thẻ script, do JS ghi vào innerHTML) PHẢI được rewrite thành local path — vì đây là HTML sau hydrate, không phải nội dung JS."
+    ]
+  }
+}
