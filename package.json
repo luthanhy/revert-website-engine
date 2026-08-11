@@ -1,0 +1,36 @@
+{
+  "name": "craw-web",
+  "version": "0.1.0",
+  "description": "Website asset crawler & organizer — crawl, tổ chức asset local, validate offline, sinh audit report",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "commonjs",
+  "bin": {
+    "craw-web": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/cli.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "commander": "^12.1.0",
+    "css-tree": "^2.3.1",
+    "iconv-lite": "^0.6.3",
+    "mime-types": "^2.1.35",
+    "p-queue": "^8.0.1",
+    "undici": "^6.21.0"
+  },
+  "devDependencies": {
+    "@types/css-tree": "^2.3.9",
+    "@types/mime-types": "^2.1.4",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

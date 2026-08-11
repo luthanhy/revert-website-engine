@@ -1,0 +1,16 @@
+{
+  "description": "Expected result cho test-sites/basic — xem doc/plan.md mục 23. Số liệu tính từ chính fixture này, không phải số minh họa trong spec.",
+  "pages": 3,
+  "css": 2,
+  "js": 1,
+  "images": 1,
+  "missingAssets": 0,
+  "brokenLinks": 0,
+  "notes": [
+    "about.html dùng 2 CSS (style.css + theme.css) để test nhiều <link> trên 1 trang.",
+    "theme.css @import style.css để test nested CSS dependency + dedupe (không tải lại style.css lần 2).",
+    "style.css có background: url(../images/logo.png) để test resolve URL trong CSS theo vị trí file CSS.",
+    "logo.png được 3 trang HTML + 1 CSS cùng tham chiếu -> phải dedupe thành 1 resource duy nhất trong manifest.",
+    "contact.html có <form action=\"/submit\"> để test HTML asset coverage (form action) dù /submit không tồn tại thật (không phải asset tải về, chỉ test extraction)."
+  ]
+}
