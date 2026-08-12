@@ -42,6 +42,15 @@ export function rewriteHtml(html: string, baseUrl: string, resolveMap: ResolveMa
     $(el).attr("style", rewritten);
   });
 
+  // <style>...</style> block (mục 9 "inline resource") — nhiều page-builder (LadiPage, Webflow...)
+  // đặt toàn bộ background-image dưới dạng CSS rule trong 1 khối <style> thay vì <img>/style="" —
+  // bỏ qua bước này sẽ khiến hầu hết ảnh trên các site dạng đó không được rewrite dù đã tải về.
+  $("style").each((_, el) => {
+    const css = $(el).html() ?? "";
+    if (!css) return;
+    $(el).html(rewriteCss(css, baseUrl, resolveMap));
+  });
+
   return $.html();
 }
 

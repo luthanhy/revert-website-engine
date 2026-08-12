@@ -14,7 +14,7 @@ import { isSameOrigin, isSameSite, QueryVariantGuard } from "./crawler/urlPolicy
 import { CrawlQueue } from "./crawler/queue";
 import { fetchResource, readTextWithEncoding } from "./crawler/fetcher";
 import { renderPage, closeRenderer } from "./crawler/renderer";
-import { extractLinks } from "./crawler/linkExtractor";
+import { extractLinks, extractInlineStyleBlocks } from "./crawler/linkExtractor";
 import { extractCssUrls } from "./crawler/cssExtractor";
 import { fetchRobotsTxt, fetchSitemapUrls, isDisallowed } from "./crawler/robotsAndSitemap";
 import { classifyException, classifyHttpStatus, makeError } from "./crawler/errorTaxonomy";
@@ -404,6 +404,19 @@ export async function runCrawl(
         // form[action] được extract để biết trang có gọi backend (mục 13), nhưng KHÔNG phải
         // static asset cần tải/resolve offline — tải nó sẽ luôn "lỗi" (form action thường không
         // trả nội dung cho GET) và làm sai lệch offline readiness (mục 14) một cách không công bằng.
+        enqueueAsset(normalized, "html", resource.id);
+      }
+    }
+
+    // <style>...</style> block (mục 9) — nhiều page-builder (LadiPage, Webflow...) đặt toàn bộ
+    // background-image dưới dạng CSS rule (#ID{background-image:url(...)}) trong 1 khối <style>
+    // duy nhất thay vì <img>/style="" trên từng thẻ. Base URL để resolve là URL của TRANG (không
+    // phải 1 file .css riêng), vì khối này nằm ngay trong tài liệu HTML.
+    for (const block of extractInlineStyleBlocks(text)) {
+      for (const cssUrl of extractCssUrls(block, resource.finalUrl!)) {
+        const stripped = stripFragment(cssUrl.url);
+        if (!isHttpUrl(stripped)) continue;
+        const normalized = normalizeUrl(stripped, { stripParams: config.stripParams });
         enqueueAsset(normalized, "html", resource.id);
       }
     }
