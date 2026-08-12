@@ -47,6 +47,11 @@ program
   .option("--security-probe", "bật exposure detection (P1, cần xác nhận có quyền kiểm tra site)", DEFAULT_CONFIG.securityProbe)
   .option("--log-level <level>", "debug|info|warn|error", DEFAULT_CONFIG.logLevel)
   .option("--log-file <file>", "ghi log ra file")
+  .option(
+    "--inline-css-js",
+    "nhúng thẳng CSS/JS vào HTML (không cần thư mục assets/css,js đi kèm) — ảnh/video/audio vẫn để riêng",
+    DEFAULT_CONFIG.inlineCssJs
+  )
   .action(async (url: string, opts: Record<string, unknown>) => {
     const config: CrawlConfig = {
       url,
@@ -75,6 +80,7 @@ program
       securityProbe: Boolean(opts.securityProbe),
       logLevel: opts.logLevel as CrawlConfig["logLevel"],
       logFile: opts.logFile as string | undefined,
+      inlineCssJs: Boolean(opts.inlineCssJs),
     };
 
     if (config.render) {

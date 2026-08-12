@@ -27,6 +27,7 @@ export interface CrawlConfig {
   securityProbe: boolean;
   logLevel: "debug" | "info" | "warn" | "error";
   logFile?: string;
+  inlineCssJs: boolean;
 }
 
 // Tracking param mặc định bị loại khi normalize URL (mục 5). Danh sách này còn tạm —
@@ -70,6 +71,7 @@ export const DEFAULT_CONFIG: Omit<CrawlConfig, "url"> = {
   stripParams: [],
   securityProbe: false,
   logLevel: "info",
+  inlineCssJs: false,
 };
 
 // MIME -> extension cho pathMapper (mục 10): Content-Type quyết định extension, không phải URL.

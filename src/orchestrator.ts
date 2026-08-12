@@ -22,7 +22,14 @@ import { classifyException, classifyHttpStatus, makeError } from "./crawler/erro
 import { DependencyGraph } from "./graph/dependencyGraph";
 import { mapHtmlLocalPath, mapToLocalPath, sanitizePathSegment } from "./organizer/pathMapper";
 import { streamToDisk } from "./organizer/writer";
-import { rewriteCss, rewriteHtml, ResolveMap } from "./organizer/rewriter";
+import {
+  rewriteCss,
+  rewriteHtml,
+  ResolveMap,
+  inlineAssets,
+  inlineCssImports,
+  InlineDependency,
+} from "./organizer/rewriter";
 import { runStaticValidation, computeOfflineReadiness } from "./offline/staticValidator";
 import { detectMinification } from "./analyzer/minifyDetector";
 import { auditPassiveSecurity, auditExposure } from "./analyzer/securityAuditor";
@@ -468,6 +475,39 @@ export async function runCrawl(
     if (r.finalUrl) htmlPathByUrl.set(r.finalUrl, r.localPath);
   }
 
+  const normalizeForLookup = (url: string) => normalizeUrl(url, { stripParams: config.stripParams });
+
+  // --inline-css-js: build nội dung CSS đã "chuyển nhà" đệ quy — nếu CSS này @import CSS khác
+  // cũng sẽ bị inline, phải thay bằng NỘI DUNG THẬT (không chỉ sửa path), nếu không file sau khi
+  // inline vẫn cần 1 file .css khác tồn tại riêng ngoài đĩa, phá mục tiêu "1 file duy nhất".
+  function buildFullyInlinedCss(cssResource: Resource, htmlLocalPath: string, visited: Set<string>): string {
+    if (visited.has(cssResource.id)) return "";
+    visited.add(cssResource.id);
+    const raw = rawTextOf.get(cssResource.id);
+    if (raw === undefined) return "";
+
+    const cssContentByUrl = new Map<string, string>();
+    const pathResolveMap: ResolveMap = new Map();
+    for (const depId of cssResource.dependencies) {
+      const dep = graph.getNode(depId);
+      if (!dep) continue;
+      if (dep.type === "css") {
+        const nested = buildFullyInlinedCss(dep, htmlLocalPath, visited);
+        cssContentByUrl.set(dep.url, nested);
+        if (dep.finalUrl) cssContentByUrl.set(dep.finalUrl, nested);
+      } else if (dep.localPath) {
+        const rel = path.posix.relative(path.posix.dirname(htmlLocalPath), dep.localPath);
+        pathResolveMap.set(dep.url, rel);
+        if (dep.finalUrl && dep.finalUrl !== dep.url) pathResolveMap.set(dep.finalUrl, rel);
+      }
+    }
+
+    const cssBaseUrl = cssResource.finalUrl ?? cssResource.url;
+    let result = inlineCssImports(raw, cssBaseUrl, cssContentByUrl, normalizeForLookup);
+    result = rewriteCss(result, cssBaseUrl, pathResolveMap, normalizeForLookup);
+    return result;
+  }
+
   // Phase 2: rewrite HTML/CSS đã tải, dùng Dependency Graph để tính relative path đúng cho từng file.
   for (const resource of graph.all()) {
     if (resource.state !== "downloaded") continue;
@@ -498,17 +538,44 @@ export async function runCrawl(
     const rewriteBaseUrl =
       resource.type === "html" ? resolveDocumentBaseUrl(text, resource.finalUrl ?? resource.url) : resource.finalUrl ?? resource.url;
     const rewritten =
-      resource.type === "html" ? rewriteHtml(text, rewriteBaseUrl, resolveMap) : rewriteCss(text, rewriteBaseUrl, resolveMap);
+      resource.type === "html"
+        ? rewriteHtml(text, rewriteBaseUrl, resolveMap, normalizeForLookup)
+        : rewriteCss(text, rewriteBaseUrl, resolveMap, normalizeForLookup);
+
+    // --inline-css-js: nhúng thẳng CSS/JS vào HTML để 1 file .html không cần thư mục assets/css,
+    // assets/js đi kèm mới mở được (ảnh/video/audio vẫn để riêng — nhúng sẽ nhân bản asset dùng
+    // chung giữa nhiều trang, phình dung lượng nhiều lần, xem lựa chọn phạm vi trong hội thoại).
+    let htmlWithInlined = rewritten;
+    if (resource.type === "html" && config.inlineCssJs) {
+      const inlineDeps: InlineDependency[] = [];
+      for (const depId of resource.dependencies) {
+        const dep = graph.getNode(depId);
+        if (!dep || !dep.localPath || (dep.type !== "css" && dep.type !== "js")) continue;
+        if (dep.state !== "downloaded" && dep.state !== "rewritten") continue;
+        const relativeFromHtml = path.posix.relative(path.posix.dirname(resource.localPath), dep.localPath);
+
+        if (dep.type === "css") {
+          const inlinedCss = buildFullyInlinedCss(dep, resource.localPath, new Set());
+          if (!inlinedCss) continue;
+          inlineDeps.push({ type: "css", relativePath: relativeFromHtml, content: inlinedCss });
+        } else {
+          const jsContent = await fs.readFile(path.join(outputRoot, dep.localPath), "utf-8").catch(() => null);
+          if (jsContent === null) continue;
+          inlineDeps.push({ type: "js", relativePath: relativeFromHtml, content: jsContent });
+        }
+      }
+      if (inlineDeps.length > 0) htmlWithInlined = inlineAssets(rewritten, inlineDeps);
+    }
 
     // Beautify HTML output (kèm CSS/JS nhúng trong <style>/<script>) để đọc được — source thường bị
     // minify thành 1 dòng dài. Chỉ đổi whitespace, không đổi cấu trúc/nội dung nên an toàn để mặc định
     // bật. Nếu prettier lỗi (HTML không chuẩn) thì ghi nguyên bản đã rewrite, không chặn cả crawl.
-    let finalContent = rewritten;
+    let finalContent = htmlWithInlined;
     if (resource.type === "html") {
       try {
-        finalContent = await prettier.format(rewritten, { parser: "html" });
+        finalContent = await prettier.format(htmlWithInlined, { parser: "html" });
       } catch {
-        // giữ nguyên finalContent = rewritten
+        // giữ nguyên finalContent = htmlWithInlined
       }
     }
 
