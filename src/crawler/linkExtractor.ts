@@ -10,7 +10,9 @@ export interface ExtractedLink {
   isNavigable: boolean; // <a href> -> có thể crawl tiếp (nếu same-origin); asset -> chỉ tải
 }
 
-const ASSET_SELECTORS: Array<{ selector: string; attr: string; tag: string }> = [
+// export để rewriter.ts dùng LẠI đúng danh sách này khi rewrite — tránh 2 list (extract vs rewrite)
+// bị maintain riêng rẽ rồi lệch nhau (từng xảy ra: srcset/object/embed/use tải được nhưng ko rewrite).
+export const ASSET_SELECTORS: Array<{ selector: string; attr: string; tag: string }> = [
   { selector: "img[src]", attr: "src", tag: "img" },
   { selector: "img[srcset]", attr: "srcset", tag: "img" },
   { selector: "source[src]", attr: "src", tag: "source" },
@@ -42,14 +44,19 @@ function parseSrcset(value: string): string[] {
     .filter(Boolean);
 }
 
+// <base href> ảnh hưởng cách resolve MỌI URL tương đối trong trang (mục 5) — không chỉ lúc extract
+// link mà cả lúc extract asset trong <style> block và lúc rewrite (orchestrator.ts dùng lại hàm này
+// ở cả 3 chỗ để tránh 3 nơi tính "base URL hiệu lực" khác nhau rồi rewrite sai/thiếu link).
+export function resolveDocumentBaseUrl(html: string, pageUrl: string): string {
+  const $ = cheerio.load(html);
+  const baseHref = $("base[href]").first().attr("href");
+  if (!baseHref) return pageUrl;
+  return resolveUrl(baseHref, pageUrl) ?? pageUrl;
+}
+
 export function extractLinks(html: string, baseUrlIn: string): ExtractedLink[] {
   const $ = cheerio.load(html);
-  let baseUrl = baseUrlIn;
-  const baseHref = $("base[href]").first().attr("href");
-  if (baseHref) {
-    const resolved = resolveUrl(baseHref, baseUrlIn);
-    if (resolved) baseUrl = resolved;
-  }
+  const baseUrl = resolveDocumentBaseUrl(html, baseUrlIn);
 
   const links: ExtractedLink[] = [];
   const push = (raw: string, attr: ExtractedLink["attr"], tag: string, isNavigable = false) => {

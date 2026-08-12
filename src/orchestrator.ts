@@ -6,6 +6,7 @@ import { randomUUID, createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import PQueue from "p-queue";
+import * as prettier from "prettier";
 
 import { CrawlConfig } from "./config";
 import { CrawlError, DiscoveredFrom, Resource, ResourceType } from "./types";
@@ -14,7 +15,7 @@ import { isSameOrigin, isSameSite, QueryVariantGuard } from "./crawler/urlPolicy
 import { CrawlQueue } from "./crawler/queue";
 import { fetchResource, readTextWithEncoding } from "./crawler/fetcher";
 import { renderPage, closeRenderer } from "./crawler/renderer";
-import { extractLinks, extractInlineStyleBlocks } from "./crawler/linkExtractor";
+import { extractLinks, extractInlineStyleBlocks, resolveDocumentBaseUrl } from "./crawler/linkExtractor";
 import { extractCssUrls } from "./crawler/cssExtractor";
 import { fetchRobotsTxt, fetchSitemapUrls, isDisallowed } from "./crawler/robotsAndSitemap";
 import { classifyException, classifyHttpStatus, makeError } from "./crawler/errorTaxonomy";
@@ -410,10 +411,12 @@ export async function runCrawl(
 
     // <style>...</style> block (mục 9) — nhiều page-builder (LadiPage, Webflow...) đặt toàn bộ
     // background-image dưới dạng CSS rule (#ID{background-image:url(...)}) trong 1 khối <style>
-    // duy nhất thay vì <img>/style="" trên từng thẻ. Base URL để resolve là URL của TRANG (không
-    // phải 1 file .css riêng), vì khối này nằm ngay trong tài liệu HTML.
+    // duy nhất thay vì <img>/style="" trên từng thẻ. Dùng resolveDocumentBaseUrl (tôn trọng
+    // <base href> nếu có, mục 5) thay vì resource.finalUrl trực tiếp — nếu không, site có <base href>
+    // sẽ khiến asset bị resolve sai địa chỉ ngay từ bước phát hiện.
+    const pageBaseUrl = resolveDocumentBaseUrl(text, resource.finalUrl!);
     for (const block of extractInlineStyleBlocks(text)) {
-      for (const cssUrl of extractCssUrls(block, resource.finalUrl!)) {
+      for (const cssUrl of extractCssUrls(block, pageBaseUrl)) {
         const stripped = stripFragment(cssUrl.url);
         if (!isHttpUrl(stripped)) continue;
         const normalized = normalizeUrl(stripped, { stripParams: config.stripParams });
@@ -489,14 +492,29 @@ export async function runCrawl(
       }
     }
 
+    // Dùng resolveDocumentBaseUrl cho HTML (tôn trọng <base href>, mục 5) — PHẢI khớp với base URL
+    // đã dùng lúc discover asset (processPage ở trên), nếu không resolveMap.get() sẽ miss vì absolute
+    // URL tính ra khác nhau giữa 2 bước, khiến link "tải được nhưng không rewrite" một cách âm thầm.
+    const rewriteBaseUrl =
+      resource.type === "html" ? resolveDocumentBaseUrl(text, resource.finalUrl ?? resource.url) : resource.finalUrl ?? resource.url;
     const rewritten =
-      resource.type === "html"
-        ? rewriteHtml(text, resource.finalUrl ?? resource.url, resolveMap)
-        : rewriteCss(text, resource.finalUrl ?? resource.url, resolveMap);
+      resource.type === "html" ? rewriteHtml(text, rewriteBaseUrl, resolveMap) : rewriteCss(text, rewriteBaseUrl, resolveMap);
+
+    // Beautify HTML output (kèm CSS/JS nhúng trong <style>/<script>) để đọc được — source thường bị
+    // minify thành 1 dòng dài. Chỉ đổi whitespace, không đổi cấu trúc/nội dung nên an toàn để mặc định
+    // bật. Nếu prettier lỗi (HTML không chuẩn) thì ghi nguyên bản đã rewrite, không chặn cả crawl.
+    let finalContent = rewritten;
+    if (resource.type === "html") {
+      try {
+        finalContent = await prettier.format(rewritten, { parser: "html" });
+      } catch {
+        // giữ nguyên finalContent = rewritten
+      }
+    }
 
     const absPath = path.join(outputRoot, resource.localPath);
     await fs.mkdir(path.dirname(absPath), { recursive: true });
-    await fs.writeFile(absPath, rewritten, "utf-8");
+    await fs.writeFile(absPath, finalContent, "utf-8");
     resource.state = "rewritten";
   }
 

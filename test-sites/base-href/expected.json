@@ -1,0 +1,12 @@
+{
+  "description": "Test <base href> (mục 5/9) — asset phải resolve theo base href, không phải theo vị trí trang. Bug từng bỏ sót: extractLinks tôn trọng base href nhưng rewriteHtml + inline <style> block extraction thì không, khiến link tải được nhưng không rewrite.",
+  "pages": 1,
+  "images": 2,
+  "missingAssets": 0,
+  "notes": [
+    "index.html có <base href=\"assets2/\">.",
+    "<img src=\"logo.png\"> phải resolve thành /assets2/logo.png (KHÔNG phải /logo.png).",
+    "<style>#hero{background-image:url(\"bg.jpg\")}</style> phải resolve thành /assets2/bg.jpg (KHÔNG phải /bg.jpg) — đây là phần bug cũ bỏ sót.",
+    "Sau rewrite, cả 2 reference trong HTML output phải trỏ về local path thật (không còn URL tuyệt đối gốc)."
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "description": "Test các attribute từng bị 'tải được nhưng không rewrite' do rewriter.ts giữ list riêng lệch với linkExtractor.ts (đã fix bằng cách dùng chung ASSET_SELECTORS). Cũng test URL có fragment (#icon).",
+  "pages": 1,
+  "assetsDownloaded": 7,
+  "notes": [
+    "img[srcset] có 2 URL trong 1 attribute (a-2x.png, a-3x.png) ngoài src=a.png -> phải tải cả 3, rewrite cả 3 (giữ nguyên descriptor 2x/3x).",
+    "object[data], embed[src], input[type=image][src] phải được rewrite, không chỉ tải.",
+    "use[href]=\"sprite.svg#icon\" có fragment -> phải tải sprite.svg (bỏ fragment lúc tải) NHƯNG rewrite ra path local VẪN giữ #icon ở cuối.",
+    "Sau rewrite, không còn attribute nào trỏ tới URL tương đối gốc (a.png, doc.png, embed.png, submit.png, sprite.svg) — tất cả phải thành ../assets/..."
+  ]
+}

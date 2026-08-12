@@ -59,6 +59,9 @@ src/
   organizer/
     pathMapper.ts                  # URL -> local path, content-hash based
     rewriter.ts                     # rewrite HTML/CSS an toàn (KHÔNG rewrite JS bừa, xem mục 12)
+                                      #   + beautify HTML output bằng prettier (orchestrator.ts, mặc định
+                                      #   bật) — chỉ đổi whitespace, format luôn cả CSS/JS nhúng trong
+                                      #   <style>/<script>, không đụng file .js/.css tải riêng.
     writer.ts                        # ghi file streaming xuống đĩa
   offline/
     localServer.ts                    # local HTTP server tạm để serve crawl output
